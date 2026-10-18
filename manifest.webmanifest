@@ -1,0 +1,17 @@
+{
+  "name": "Dictée – luyện chép chính tả tiếng Pháp",
+  "short_name": "Dictée",
+  "description": "Luyện chép chính tả tiếng Pháp: nghe từng câu, chép lại, máy chấm và chỉ ra chỗ sai.",
+  "lang": "vi",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#eef0fa",
+  "theme_color": "#2438c5",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

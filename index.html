@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Dictée</title>
+  <meta name="description" content="Luyện chép chính tả tiếng Pháp: nghe từng câu, chép lại, máy chấm và chỉ ra chỗ sai.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#2438c5">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Dictée">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Playwrite+FR+Moderne:wght@300;400&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Bộ icon (nét vẽ), dùng lại bằng <use href="#i-..."> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1.2" fill="currentColor" stroke="none"/><rect x="14" y="4.5" width="4" height="15" rx="1.2" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></symbol>
+      <symbol id="i-prev" viewBox="0 0 24 24"><path d="M18 6l-8 6 8 6z"/><path d="M6 6v12"/></symbol>
+      <symbol id="i-skip" viewBox="0 0 24 24"><path d="M6 6l8 6-8 6z"/><path d="M18 6v12"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M15.5 4.5l4 4L8 20H4v-4z"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5"/></symbol>
+      <symbol id="i-marker" viewBox="0 0 24 24"><path d="M14.5 4l5.5 5.5-8 8H6.5V12z"/><path d="M4 20h7"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+      <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5.5l10-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+      <symbol id="i-restart" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- Cột trái: thư viện -->
+    <aside class="library">
+      <div class="brand">
+        <div class="brand-row">
+          <span class="logo">Dictée</span>
+          <div class="lang-switch" role="group" data-i18n-aria="lang.label">
+            <button type="button" data-lang="vi" lang="vi">VI</button>
+            <button type="button" data-lang="fr" lang="fr">FR</button>
+          </div>
+        </div>
+        <p class="tagline" data-i18n="lib.tagline"></p>
+      </div>
+      <!-- Chỉ hiện trên điện thoại: mở / thu gọn thư viện -->
+      <button id="btn-lib-toggle" class="lib-toggle" type="button" aria-expanded="true">
+        <span id="lib-toggle-text"></span><svg class="ic"><use href="#i-chevron"/></svg>
+      </button>
+      <button id="btn-add" class="btn primary add-btn"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="lib.add"></span></button>
+      <ul id="lesson-list" class="lesson-list"></ul>
+      <div class="library-foot">
+        <button id="btn-export" class="btn link" data-i18n="lib.export"></button>
+        <label class="btn link"><span data-i18n="lib.import"></span><input id="file-import" type="file" accept=".json" hidden></label>
+        <button id="btn-restore" class="btn link" hidden></button>
+      </div>
+    </aside>
+
+    <!-- Bên phải: luyện tập -->
+    <main class="practice">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-sheet" aria-hidden="true"><span>Dictée</span></div>
+        <h2 data-i18n="empty.title"></h2>
+        <p data-i18n="empty.body"></p>
+      </div>
+
+      <div id="practice-view" hidden>
+        <header class="lesson-head">
+          <div class="title-row">
+            <span id="lesson-level" class="sticker" hidden></span>
+            <h2 id="lesson-title"></h2>
+            <div class="title-actions">
+              <button id="btn-edit" class="btn icon-btn" data-i18n-title="btn.edit" data-i18n-aria="btn.edit"><svg class="ic"><use href="#i-edit"/></svg></button>
+              <button id="btn-delete" class="btn icon-btn danger" data-i18n-title="btn.delete" data-i18n-aria="btn.delete"><svg class="ic"><use href="#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <div class="segmented" role="tablist">
+              <button id="mode-sentence" class="seg" role="tab" data-i18n="mode.sentence"></button>
+              <button id="mode-full" class="seg" role="tab" data-i18n="mode.full"></button>
+            </div>
+            <label class="ctrl"><span data-i18n="ctrl.rate"></span>
+              <input id="rate" type="range" min="0.5" max="1.5" step="0.05">
+              <output id="rate-out"></output>
+            </label>
+            <label class="ctrl"><span data-i18n="ctrl.pause"></span>
+              <input id="pause" type="range" min="1" max="10" step="0.5">
+              <output id="pause-out"></output>
+            </label>
+            <label id="ctrl-voice" class="ctrl"><span data-i18n="ctrl.voice"></span>
+              <select id="voice"></select>
+            </label>
+            <span id="audio-badge" class="badge" hidden data-i18n-title="badge.title"><svg class="ic"><use href="#i-music"/></svg><span id="audio-badge-text"></span></span>
+          </div>
+          <p id="voice-warning" class="warning" hidden></p>
+        </header>
+
+        <section class="player">
+          <button id="btn-play" class="play-btn"></button>
+          <div class="player-main">
+            <div class="status">
+              <span id="status-text"></span>
+              <span id="speaking-dot" class="wave" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </div>
+            <div id="progress" class="progress"></div>
+          </div>
+          <div class="player-actions">
+            <button id="btn-replay" class="btn ghost" title="Ctrl+Space"><svg class="ic"><use href="#i-replay"/></svg><span data-i18n="btn.replay"></span></button>
+            <button id="btn-prev" class="btn ghost" hidden><svg class="ic"><use href="#i-prev"/></svg><span data-i18n="btn.prev"></span></button>
+            <button id="btn-skip" class="btn ghost" hidden title="Ctrl+→"><svg class="ic"><use href="#i-skip"/></svg><span data-i18n="btn.skip"></span></button>
+          </div>
+        </section>
+
+        <!-- Trang vở Seyès: chỗ chép bài và chấm bài -->
+        <section class="sheet">
+          <div id="hint-box" class="hint-box" hidden>
+            <div id="hint-label" class="hint-label"></div>
+            <div id="hint-text" class="hint-text"></div>
+          </div>
+          <textarea id="input" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" rows="2" lang="fr"></textarea>
+          <div id="feedback" class="feedback" hidden></div>
+          <section id="done-section" class="done" hidden>
+            <h3 data-i18n="done.title"></h3>
+            <ol id="done-list"></ol>
+          </section>
+        </section>
+
+        <div class="writing-actions">
+          <div id="hint" class="kbd-list"></div>
+          <div class="check-buttons">
+            <button id="btn-hint" class="btn ghost" title="Ctrl+I"><svg class="ic"><use href="#i-marker"/></svg><span data-i18n="btn.hint"></span></button>
+            <button id="btn-answer" class="btn ghost"><svg class="ic"><use href="#i-eye"/></svg><span data-i18n="btn.answer"></span></button>
+            <button id="btn-check" class="btn primary"><svg class="ic"><use href="#i-check"/></svg><span data-i18n="btn.check"></span></button>
+          </div>
+        </div>
+        <div class="restart-row">
+          <button id="btn-restart" class="btn link"><svg class="ic"><use href="#i-restart"/></svg><span data-i18n="btn.restart"></span></button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Hộp thoại thêm/sửa bài -->
+  <dialog id="editor">
+    <form method="dialog" class="editor-form">
+      <h2 id="editor-title"></h2>
+      <label class="field"><span data-i18n="ed.name"></span>
+        <input id="ed-title" required data-i18n-ph="ed.namePh">
+      </label>
+      <div class="audio-box">
+        <div class="audio-row">
+          <label class="btn ghost" id="ed-audio-pick"><svg class="ic"><use href="#i-music"/></svg><span data-i18n="ed.pick"></span><input id="ed-audio" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.flac" hidden></label>
+          <select id="ed-model" data-i18n-title="ed.modelTitle"></select>
+          <button type="button" id="ed-audio-cancel" class="btn small" hidden data-i18n="ed.stop"></button>
+          <button type="button" id="ed-audio-remove" class="btn link" hidden data-i18n="ed.remove"></button>
+        </div>
+        <div id="ed-audio-status" class="audio-status"></div>
+        <div class="progress-line" id="ed-audio-progress" hidden><div id="ed-audio-bar"></div></div>
+      </div>
+      <label class="field"><span data-i18n="ed.text"></span>
+        <textarea id="ed-text" rows="9" required spellcheck="false" data-i18n-ph="ed.textPh"></textarea>
+      </label>
+      <details class="preview">
+        <summary id="ed-count"></summary>
+        <ol id="ed-preview"></ol>
+      </details>
+      <p class="note" data-i18n="ed.tip"></p>
+      <div class="editor-actions">
+        <button value="cancel" class="btn ghost" formnovalidate data-i18n="ed.cancel"></button>
+        <button id="ed-save" value="save" class="btn primary" data-i18n="ed.save"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="i18n.js"></script>
+  <script src="core.js"></script>
+  <script src="lessons-builtin.js"></script>
+  <script src="audio.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
