@@ -1,7 +1,7 @@
 // Service worker: cho app mở được khi không có mạng sau lần mở đầu.
 // File của app: lấy bản mới từ mạng khi có, mất mạng thì dùng bản đã lưu.
 // Font Google: lưu lại một lần rồi dùng mãi. Bộ nhận dạng giọng nói tự lưu riêng nên bỏ qua.
-const VERSION = 'dictee-v2';
+const VERSION = 'dictee-v3';
 const APP_FILES = [
   './', 'index.html', 'styles.css', 'i18n.js', 'core.js', 'lessons-builtin.js', 'audio.js', 'app.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',

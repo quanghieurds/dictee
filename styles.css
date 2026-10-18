@@ -393,3 +393,29 @@ dialog::backdrop { background: rgba(14, 18, 48, .45); backdrop-filter: blur(3px)
   .lesson-list li { padding-top: 11px; padding-bottom: 11px; }
   input[type=range] { width: 120px; }
 }
+
+/* ---------- Gói nghe ---------- */
+[data-level="pack"] { --lv: #0e9fb3; }
+.pack-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 0 8px 12px; }
+.lesson-list li.group.pack .g-name .ic:not(:first-child) { width: 15px; height: 15px; color: var(--lv); transform: none; }
+.g-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lesson-list li.group.pack { flex-wrap: wrap; }
+.lesson-list li.group.pack .g-name { flex: 1; min-width: 0; }
+.g-actions { display: flex; gap: 2px; width: 100%; padding-left: 22px; }
+.g-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 28px;
+  border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer;
+}
+.g-btn .ic { width: 16px; height: 16px; }
+.g-btn:hover { background: var(--ink-soft); color: var(--ink); }
+.pk-list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; font-size: 13px; }
+.pk-list:empty { display: none; }
+.pk-list li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 2px; border-bottom: 1px solid var(--line); }
+.pk-list .pk-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-list .pk-st { color: var(--muted); white-space: nowrap; flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+.pk-list li.running .pk-st { color: var(--ink); font-weight: 600; }
+.pk-list li.done .pk-st { color: var(--ok); }
+.pk-list li.err .pk-st { color: var(--err); }
+#pk-bar { height: 100%; width: 0; background: var(--ink); border-radius: 3px; transition: width .3s; }
+.lib-collapsed .pack-actions { display: none; }
+@media (hover: none) and (pointer: coarse) { .g-btn { width: 40px; height: 36px; } }

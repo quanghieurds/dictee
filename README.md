@@ -13,6 +13,17 @@ Mở link GitHub Pages của app rồi cài như app thật:
 
 Sau lần mở đầu, app chạy được cả khi không có mạng. Mỗi máy giữ bài và tiến độ riêng: chuyển bằng **Sao lưu** (máy cũ) → **Khôi phục** (máy mới). Bản sao lưu có kèm file âm thanh. Nên nhận dạng file mp3 trên máy tính, điện thoại thường không đủ bộ nhớ.
 
+## Gói nghe: nhận dạng trên máy tính, luyện trên điện thoại
+1. **Máy tính** (Edge/Chrome): bấm **Tạo gói nghe từ file mp3** → đặt tên → **Chọn cả thư mục…** (hoặc chọn nhiều file) → **Bắt đầu nghe**.
+   - Mỗi file thành một bài, sắp theo tên file. Tên bài bỏ phần số ở đầu (`09035199_001_ACT 1-1.mp3` → `ACT 1-1`). Dòng tiêu đề "Activité…" được tự bỏ.
+   - Giữ trang mở đến khi xong (khoảng 1–2 phút cho mỗi phút âm thanh). Bài nào xong được lưu ngay. Bấm **Dừng** thì các bài đã xong vẫn còn.
+   - Các bài nằm chung một nhóm 🎧 trong thư viện. Nên mở vài bài kiểm tra và sửa chỗ máy nghe sai.
+2. Ở tên nhóm, bấm nút **tải xuống** để xuất file `goi-nghe-<tên>.json` (có kèm toàn bộ âm thanh).
+3. Gửi file sang điện thoại/iPad (AirDrop, Zalo, Google Drive…), lưu vào Tệp.
+4. **Điện thoại**: bấm **Nhập gói nghe** → chọn file. Cả nhóm hiện ra, mỗi bài phát giọng gốc. Nhập lại cùng gói không bị nhân đôi.
+
+Nút ở tên nhóm gói: tải xuống (xuất gói), bút chì (đổi tên), thùng rác (xóa cả gói).
+
 ## Cách dùng
 1. **+ Thêm bài** → đặt tên, dán đoạn văn tiếng Pháp. Mở "Máy sẽ tách thành N câu" để xem cách tách. Muốn tách khác thì xuống dòng ở chỗ cần tách.
 2. Chọn bài ở cột trái, chọn chế độ:

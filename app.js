@@ -19,7 +19,7 @@
         lessons: state.lessons, progress: state.progress, settings: state.settings,
         activeId: state.activeId, mode: state.mode,
         hiddenBuiltin: state.hiddenBuiltin, openGroups: state.openGroups,
-        builtinVersion: state.builtinVersion,
+        builtinVersion: state.builtinVersion, packs: state.packs,
       }));
     } catch { /* bỏ qua */ }
   }
@@ -39,6 +39,7 @@
     mode: saved?.mode ?? 'sentence',
     hiddenBuiltin: saved?.hiddenBuiltin ?? [], // bài mẫu người dùng đã xóa
     openGroups: saved?.openGroups ?? ['mine'],
+    packs: saved?.packs ?? [], // gói nghe: [{id, name, created}]
   };
 
   // Thêm các bài mẫu A1–B2 còn thiếu (không thêm lại bài người dùng đã xóa).
@@ -67,8 +68,13 @@
   }
   mergeBuiltin();
 
-  const GROUPS = ['mine', 'A1', 'A2', 'B1', 'B2'].map((key) => ({ key }));
-  const groupOf = (l) => l.level || 'mine';
+  // Nhóm trong thư viện: bài của tôi, các gói nghe, rồi bài mẫu theo trình độ.
+  const groups = () => [
+    { key: 'mine' },
+    ...state.packs.map((p) => ({ key: 'pack:' + p.id, pack: p })),
+    ...['A1', 'A2', 'B1', 'B2'].map((key) => ({ key })),
+  ];
+  const groupOf = (l) => (l.pack ? 'pack:' + l.pack : l.level || 'mine');
 
   // Trạng thái lúc chạy (không lưu)
   const run = { playing: false, gen: 0, timer: null, fullIdx: 0, fullStarted: false, sentences: [],
@@ -219,25 +225,27 @@
       li.textContent = t('lib.empty');
       ul.appendChild(li);
     }
-    for (const g of GROUPS) {
+    for (const g of groups()) {
       const items = state.lessons.filter((l) => groupOf(l) === g.key);
       if (!items.length) continue;
       const open = state.openGroups.includes(g.key);
       const finished = items.filter((l) => isFinished(l)).length;
+      const level = g.pack ? 'pack' : g.key;
 
       const head = document.createElement('li');
-      head.className = 'group' + (open ? ' open' : '');
-      head.dataset.level = g.key;
+      head.className = 'group' + (open ? ' open' : '') + (g.pack ? ' pack' : '');
+      head.dataset.level = level;
       head.tabIndex = 0;
       head.setAttribute('role', 'button');
       head.setAttribute('aria-expanded', String(open));
       const hName = document.createElement('span');
       hName.className = 'g-name';
-      hName.innerHTML = ic('chevron') + '<span class="dot"></span>' + esc(t('group.' + g.key));
+      hName.innerHTML = ic('chevron') + (g.pack ? ic('headphones') : '<span class="dot"></span>') + `<span class="g-label">${esc(g.pack ? g.pack.name : t('group.' + g.key))}</span>`;
       const hMeta = document.createElement('span');
       hMeta.className = 'meta';
       hMeta.textContent = finished ? t('group.done', { d: finished, n: items.length }) : t('group.count', { n: items.length });
       head.append(hName, hMeta);
+      if (g.pack) head.append(packActions(g.pack));
       head.onclick = () => toggleGroup(g.key, open);
       head.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(g.key, open); } };
       ul.appendChild(head);
@@ -246,7 +254,7 @@
       for (const l of items) {
         const li = document.createElement('li');
         li.className = 'item';
-        li.dataset.level = g.key;
+        li.dataset.level = level;
         li.tabIndex = 0;
         if (l.id === state.activeId) li.classList.add('active');
         const total = splitSentences(l.text).length;
@@ -254,7 +262,7 @@
         const doneCount = p ? p.done.length : 0;
         const name = document.createElement('span');
         name.className = 'i-name';
-        name.innerHTML = (l.words ? ic('music') : '') + esc(l.level ? l.title.replace(`${l.level} · `, '') : l.title);
+        name.innerHTML = (l.words && !l.pack ? ic('music') : '') + esc(l.level ? l.title.replace(`${l.level} · `, '') : l.title);
         const meta = document.createElement('span');
         meta.className = 'meta' + (doneCount >= total && total ? ' done' : '');
         meta.textContent = doneCount >= total && total ? t('item.done') : doneCount ? `${doneCount}/${total}` : t('item.sentences', { n: total });
@@ -893,28 +901,34 @@
     r.readAsDataURL(b);
   });
 
-  // Sao lưu cả file âm thanh (dạng data URL) để chuyển bài sang điện thoại / máy khác.
-  $('btn-export').onclick = async () => {
-    const lessons = [];
-    for (const l of state.lessons) {
-      const { words, audio, silences, ...rest } = l;
-      const out = { ...rest };
-      if (words && audio) {
-        try {
-          const blob = await AudioStore.get(l.id);
-          if (blob) Object.assign(out, { words, silences, audio, audioData: await blobToDataURL(blob) });
-        } catch { /* không đọc được file âm thanh: chỉ lưu văn bản */ }
-      }
-      lessons.push(out);
-    }
-    const blob = new Blob([JSON.stringify({ lessons })], { type: 'application/json' });
+  function download(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'dictee-thu-vien.json';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+
+  // Một bài kèm file âm thanh (dạng data URL) để mang sang điện thoại / máy khác.
+  async function lessonForExport(l) {
+    const { words, audio, silences, ...rest } = l;
+    const out = { ...rest };
+    if (words && audio) {
+      try {
+        const blob = await AudioStore.get(l.id);
+        if (blob) Object.assign(out, { words, silences, audio, audioData: await blobToDataURL(blob) });
+      } catch { /* không đọc được file âm thanh: chỉ lưu văn bản */ }
+    }
+    return out;
+  }
+
+  $('btn-export').onclick = async () => {
+    const lessons = [];
+    for (const l of state.lessons) lessons.push(await lessonForExport(l));
+    download({ lessons, packs: state.packs }, 'dictee-thu-vien.json');
   };
 
   // Gắn file âm thanh từ bản sao lưu vào bài (nếu có).
@@ -931,32 +945,269 @@
       return false;
     }
   }
-  $('file-import').onchange = async (e) => {
-    const f = e.target.files[0];
-    e.target.value = '';
-    if (!f) return;
+  // Thêm các bài từ bản sao lưu hoặc gói nghe. Trả về số bài thêm mới.
+  async function addLessons(incoming, packId) {
+    let added = 0;
+    for (const l of incoming) {
+      if (!l || !l.id || !l.title || !l.text) continue;
+      const have = state.lessons.find((x) => x.id === l.id);
+      const pack = packId || l.pack;
+      if (!have) {
+        const entry = { id: l.id, title: l.title, text: l.text, ...(l.level ? { level: l.level } : {}), ...(pack ? { pack } : {}) };
+        await importAudio(entry, l);
+        state.lessons.push(entry);
+        added++;
+      } else if (!have.words && have.text === l.text && await importAudio(have, l)) {
+        // Bài đã có nhưng thiếu file âm thanh: bổ sung từ bản sao lưu.
+        run.audioKey = null;
+      }
+    }
+    return added;
+  }
+  const addPack = (p) => {
+    let pack = state.packs.find((x) => x.id === p.id);
+    if (!pack) {
+      pack = { id: p.id, name: p.name || t('pack.defaultName'), created: p.created || Date.now() };
+      state.packs.push(pack);
+    }
+    return pack;
+  };
+
+  // Dùng chung cho "Khôi phục" (bản sao lưu) và "Nhập gói nghe": tự nhận loại file.
+  async function importFile(f, labelEl) {
+    const old = labelEl && labelEl.textContent;
+    if (labelEl) labelEl.textContent = t('pack.importing');
     try {
       const data = JSON.parse(await f.text());
-      const incoming = (data.lessons || []).filter((l) => l && l.id && l.title && l.text);
-      let added = 0;
-      for (const l of incoming) {
-        const have = state.lessons.find((x) => x.id === l.id);
-        if (!have) {
-          const entry = { id: l.id, title: l.title, text: l.text, ...(l.level ? { level: l.level } : {}) };
-          await importAudio(entry, l);
-          state.lessons.push(entry);
-          added++;
-        } else if (!have.words && have.text === l.text && await importAudio(have, l)) {
-          // Bài đã có nhưng thiếu file âm thanh: bổ sung từ bản sao lưu.
-          run.audioKey = null;
-        }
+      if (data.type === 'dictee-pack' && data.pack && data.pack.id && Array.isArray(data.lessons)) {
+        const pack = addPack(data.pack);
+        const n = await addLessons(data.lessons, pack.id);
+        const key = 'pack:' + pack.id;
+        if (!state.openGroups.includes(key)) state.openGroups.push(key);
+        save();
+        renderAll();
+        alert(t('pack.imported', { name: pack.name, n }));
+        return;
       }
+      if (!Array.isArray(data.lessons)) throw new Error('invalid');
+      for (const p of data.packs || []) if (p && p.id) addPack(p);
+      for (const l of data.lessons) if (l && l.pack) addPack({ id: l.pack });
+      const valid = data.lessons.filter((l) => l && l.id && l.title && l.text).length;
+      const added = await addLessons(data.lessons);
       save();
       renderAll();
-      alert(incoming.length - added ? t('import.skipped', { a: added, s: incoming.length - added }) : t('import.done', { a: added }));
+      alert(valid - added ? t('import.skipped', { a: added, s: valid - added }) : t('import.done', { a: added }));
     } catch {
       alert(t('import.invalid'));
+    } finally {
+      if (labelEl) labelEl.textContent = old;
     }
+  }
+  $('file-import').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); };
+  $('pack-import').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f, $('pack-import-text')); };
+
+  // ---------- Gói nghe ----------
+  const packLessons = (id) => state.lessons.filter((l) => l.pack === id);
+
+  // Nút ở tên nhóm gói: xuất, đổi tên, xóa.
+  function packActions(pack) {
+    const box = document.createElement('span');
+    box.className = 'g-actions';
+    const mk = (icon, key, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'g-btn';
+      b.title = t(key);
+      b.setAttribute('aria-label', t(key));
+      b.innerHTML = ic(icon);
+      b.onclick = (e) => { e.stopPropagation(); fn(pack); };
+      b.onkeydown = (e) => e.stopPropagation();
+      return b;
+    };
+    box.append(mk('download', 'pack.export', exportPack), mk('edit', 'pack.rename', renamePack), mk('trash', 'pack.delete', deletePack));
+    return box;
+  }
+
+  async function exportPack(pack) {
+    const lessons = [];
+    for (const l of packLessons(pack.id)) lessons.push(await lessonForExport(l));
+    const slug = pack.name.normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'goi';
+    download({ type: 'dictee-pack', version: 1, pack: { id: pack.id, name: pack.name, created: pack.created }, lessons }, `goi-nghe-${slug}.json`);
+  }
+
+  function renamePack(pack) {
+    const name = prompt(t('pack.renamePrompt'), pack.name);
+    if (!name || !name.trim()) return;
+    pack.name = name.trim();
+    save();
+    renderLibrary();
+  }
+
+  function deletePack(pack) {
+    const items = packLessons(pack.id);
+    if (!confirm(t('pack.confirmDelete', { name: pack.name, n: items.length }))) return;
+    if (items.some((l) => l.id === state.activeId)) { stopPlayback(); resetFull(); state.activeId = null; }
+    for (const l of items) { delete state.progress[l.id]; AudioStore.del(l.id).catch(() => {}); }
+    state.lessons = state.lessons.filter((l) => l.pack !== pack.id);
+    state.packs = state.packs.filter((p) => p.id !== pack.id);
+    state.openGroups = state.openGroups.filter((k) => k !== 'pack:' + pack.id);
+    save();
+    renderAll();
+  }
+
+  // Tạo gói: nhận dạng lần lượt nhiều file trên máy tính.
+  const pk = { files: [], running: false, stop: false };
+  const isAudioFile = (f) => /^audio\//.test(f.type) || /\.(mp3|m4a|wav|ogg|oga|aac|flac|opus|webm)$/i.test(f.name);
+  // "09035199_001_ACT 1-1.mp3" → "ACT 1-1"
+  function cleanTitle(name) {
+    const base = name.replace(/\.[^.]+$/, '');
+    return base.replace(/^(\d+[_\-\s.]+)+(?=\D)/, '').replace(/_/g, ' ').trim() || base;
+  }
+  function fillPackModels() {
+    const sel = $('pk-model');
+    const v = sel.value || modelSel.value;
+    sel.innerHTML = '';
+    for (const k of Object.keys(MODELS)) {
+      const o = document.createElement('option');
+      o.value = k;
+      o.textContent = t('model.' + k);
+      sel.appendChild(o);
+    }
+    sel.value = v;
+  }
+  fillPackModels();
+
+  function setPkStatus(text, cls = '') {
+    const s = $('pk-status');
+    s.textContent = text;
+    s.className = 'audio-status ' + cls;
+  }
+  function setPackFiles(list) {
+    pk.files = [...list].filter(isAudioFile).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const ol = $('pk-list');
+    ol.innerHTML = '';
+    for (const f of pk.files) {
+      const li = document.createElement('li');
+      const nm = document.createElement('span');
+      nm.className = 'pk-name';
+      nm.textContent = cleanTitle(f.name);
+      const st = document.createElement('span');
+      st.className = 'pk-st';
+      st.textContent = t('pack.wait');
+      li.append(nm, st);
+      ol.appendChild(li);
+    }
+    const total = pk.files.reduce((n, f) => n + f.size, 0) / 1048576;
+    $('pk-summary').textContent = pk.files.length ? t('pack.selected', { n: pk.files.length, mb: total.toFixed(1) }) : t('pack.none');
+    $('pk-start').disabled = !pk.files.length;
+    $('pk-progress').hidden = true;
+    setPkStatus('');
+  }
+  function setPkBusy(on) {
+    pk.running = on;
+    $('pk-start').disabled = on || !pk.files.length;
+    $('pk-stop').hidden = !on;
+    $('pk-close').disabled = on;
+    for (const id of ['pk-files', 'pk-folder', 'pk-model', 'pk-name']) $(id).disabled = on;
+    $('pk-pick-files').classList.toggle('disabled', on);
+    $('pk-pick-folder').classList.toggle('disabled', on);
+  }
+  function openPackDialog() {
+    if (!pk.running) {
+      $('pk-name').value = '';
+      setPackFiles([]);
+      if (window.matchMedia('(pointer: coarse)').matches) $('pk-summary').textContent = t('asr.mobileWarn');
+      setPkBusy(false);
+    }
+    $('pack-dialog').showModal();
+  }
+  $('btn-pack').onclick = openPackDialog;
+  $('pk-close').onclick = () => $('pack-dialog').close();
+  $('pack-dialog').addEventListener('cancel', (e) => { if (pk.running) e.preventDefault(); });
+  $('pk-files').onchange = (e) => { setPackFiles(e.target.files); e.target.value = ''; };
+  $('pk-folder').onchange = (e) => {
+    const files = [...e.target.files];
+    const folder = files[0] && files[0].webkitRelativePath ? files[0].webkitRelativePath.split('/')[0] : '';
+    if (folder && !$('pk-name').value.trim()) $('pk-name').value = folder;
+    setPackFiles(files);
+    e.target.value = '';
+  };
+  $('pk-stop').onclick = () => {
+    if (!confirm(t('pack.confirmStop'))) return;
+    pk.stop = true;
+    cancelAsr();
+  };
+
+  $('pk-start').onclick = async () => {
+    if (pk.running || !pk.files.length) return;
+    const files = pk.files;
+    const model = $('pk-model').value;
+    const pack = { id: 'p' + Date.now().toString(36), name: $('pk-name').value.trim() || t('pack.defaultName'), created: Date.now() };
+    state.packs.push(pack);
+    state.openGroups.push('pack:' + pack.id);
+    save();
+    pk.stop = false;
+    setPkBusy(true);
+    let wake = null;
+    try { wake = await navigator.wakeLock?.request('screen'); } catch { /* không bắt buộc */ }
+    const items = [...$('pk-list').children];
+    const setBar = (x) => { $('pk-bar').style.width = Math.round((x / files.length) * 100) + '%'; };
+    $('pk-progress').hidden = false;
+    setBar(0);
+    setPkStatus(t('pack.keepOpen'));
+    let ok = 0;
+    let finished = 0;
+    for (let i = 0; i < files.length && !pk.stop; i++) {
+      const f = files[i];
+      const st = items[i].lastChild;
+      items[i].className = 'running';
+      st.textContent = t('pack.running');
+      items[i].scrollIntoView({ block: 'nearest' });
+      try {
+        const r = await transcribe(f, model, (s) => {
+          if (s.phase === 'download') setPkStatus(t('asr.download', { a: mb(s.loaded), b: mb(s.total) }));
+          else if (s.phase === 'transcribing') {
+            st.textContent = `${t('pack.running')} ${s.done + 1}/${s.total}`;
+            setBar(finished + (s.done + 0.5) / s.total);
+          }
+        });
+        const { sentences } = stripHeadings(splitSentences(r.text));
+        if (!sentences.length) throw new Error(t('err.noSpeech'));
+        const l = {
+          id: `${pack.id}-${String(i + 1).padStart(3, '0')}`, pack: pack.id, title: cleanTitle(f.name),
+          text: sentences.join('\n'), words: r.words, silences: r.silences,
+          audio: { name: f.name, duration: r.duration, added: Date.now() },
+        };
+        await AudioStore.put(l.id, f);
+        state.lessons.push(l);
+        ok++;
+        save();
+        renderLibrary();
+        items[i].className = 'done';
+        st.textContent = t('pack.doneItem', { n: sentences.length });
+      } catch (err) {
+        if (pk.stop || err.message === 'cancelled') {
+          items[i].className = '';
+          st.textContent = t('pack.wait');
+          break;
+        }
+        items[i].className = 'err';
+        st.textContent = t('pack.skipped', { m: err.message });
+      }
+      finished++;
+      setBar(finished);
+      setPkStatus(t('pack.overall', { d: finished, n: files.length }));
+    }
+    try { if (wake) await wake.release(); } catch { /* bỏ qua */ }
+    if (!ok) {
+      state.packs = state.packs.filter((p) => p.id !== pack.id);
+      state.openGroups = state.openGroups.filter((k) => k !== 'pack:' + pack.id);
+    }
+    save();
+    setPkBusy(false);
+    $('pk-start').disabled = true; // tránh bấm lại tạo gói trùng
+    setPkStatus(t(pk.stop ? 'pack.stopped' : 'pack.finished', { ok, name: pack.name }), pk.stop ? '' : 'ok');
+    renderAll();
   };
 
   // ---------- Sự kiện ----------
@@ -1040,6 +1291,7 @@
     renderLang();
     renderLibToggle();
     renderModelOptions();
+    fillPackModels();
     populateVoices();
     updatePreview();
     $('pause-out').textContent = t('unit.sec', { n: state.settings.pause });
