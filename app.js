@@ -96,35 +96,75 @@
     gen: 0,
     speak(text, onend) {
       const g = ++this.gen;
-      synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = voice ? voice.lang : 'fr-FR';
       if (voice) u.voice = voice;
       u.rate = state.settings.rate;
-      u.onstart = () => { if (g === this.gen) setSpeaking(true); };
-      u.onend = u.onerror = () => {
+      let started = false;
+      u.onstart = () => {
+        started = true;
+        clearTimeout(this.watch);
         if (g !== this.gen) return;
+        setSpeaking(true);
+        voiceWorks();
+      };
+      u.onend = () => {
+        if (g !== this.gen) return;
+        clearTimeout(this.watch);
         setSpeaking(false);
         if (onend) onend();
       };
-      this.current = u; // giữ tham chiếu để Chrome không thu hồi giữa chừng
-      // Chrome bỏ qua lệnh speak gọi ngay sau cancel, nên chờ một chút.
-      setTimeout(() => { if (g === this.gen) synth.speak(u); }, 60);
+      u.onerror = (e) => {
+        if (g !== this.gen) return;
+        clearTimeout(this.watch);
+        setSpeaking(false);
+        if (e.error !== 'interrupted' && e.error !== 'canceled') voiceProblem(e.error || 'error');
+        if (onend) onend();
+      };
+      this.current = u; // giữ tham chiếu để trình duyệt không thu hồi giữa chừng
+      // Đang rảnh thì đọc ngay, vẫn nằm trong lần chạm của người dùng (iPhone/iPad bắt buộc).
+      // Đang đọc dở thì dừng rồi chờ chút mới đọc: Chrome và Safari bỏ qua lệnh đọc ngay sau khi dừng.
+      if (synth.speaking || synth.pending) {
+        synth.cancel();
+        setTimeout(() => { if (g === this.gen) synth.speak(u); }, 80);
+      } else {
+        synth.speak(u);
+      }
+      // Một số máy chặn im lặng: không báo lỗi, cũng không đọc. Sau vài giây vẫn chưa đọc thì báo.
+      clearTimeout(this.watch);
+      this.watch = setTimeout(() => {
+        if (g !== this.gen || started) return;
+        voiceProblem('timeout');
+        if (synth.speaking || synth.pending) return;
+        setSpeaking(false);
+        if (onend) onend();
+      }, 5000);
     },
     stop() {
       this.gen++;
-      if (synth) synth.cancel();
+      clearTimeout(this.watch);
+      if (synth && (synth.speaking || synth.pending)) synth.cancel();
       setSpeaking(false);
     },
-    // iPhone/iPad chỉ cho đọc sau khi người dùng chạm: đọc một câu rỗng ngay trong lần chạm đầu.
-    unlock() {
-      if (!synth || this.unlocked) return;
-      this.unlocked = true;
-      const u = new SpeechSynthesisUtterance(' ');
-      u.volume = 0;
-      synth.speak(u);
-    },
+    // Giữ để tương thích: việc mở khóa giờ do speak() đọc ngay trong lần chạm.
+    unlock() {},
   };
+
+  const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const IS_ANDROID = /Android/i.test(navigator.userAgent);
+  let voiceIssue = null;
+  // Báo cho người dùng khi máy không phát được giọng đọc, kèm cách sửa cho loại máy đó.
+  function voiceProblem(code) {
+    voiceIssue = code;
+    const warn = $('voice-warning');
+    warn.textContent = t('voice.problem', { code }) + ' ' + t(IS_IOS ? 'voice.tipsIOS' : IS_ANDROID ? 'voice.tipsAndroid' : 'voice.tipsOther');
+    warn.hidden = false;
+  }
+  function voiceWorks() {
+    if (!voiceIssue) return;
+    voiceIssue = null;
+    $('voice-warning').hidden = true;
+  }
 
   // Phát một đoạn [start, end] của file âm thanh (bài có file mp3).
   const audioEl = new Audio();
@@ -201,18 +241,27 @@
       warn.textContent = t('voice.noFrench');
       warn.hidden = false;
       list = all;
-    } else {
+    } else if (!voiceIssue) {
       warn.hidden = true;
     }
     sel.innerHTML = '';
+    // Điện thoại hay chưa có (hoặc không liệt kê) giọng: vẫn đọc được bằng giọng tiếng Pháp mặc định của máy.
+    if (!list.length || !list.some((v) => /^fr/i.test(v.lang))) {
+      const o = document.createElement('option');
+      o.value = '';
+      o.textContent = t('voice.default');
+      sel.appendChild(o);
+    }
     for (const v of list) {
       const o = document.createElement('option');
       o.value = v.voiceURI;
       o.textContent = v.name.replace(/^Microsoft\s+/, '').replace(/\s*Online \(Natural\)/i, '').replace(/\s*-\s*French.*$/i, '') + ` (${v.lang})`;
       sel.appendChild(o);
     }
-    voice = list.find((v) => v.voiceURI === state.settings.voiceURI) || list[0] || null;
-    if (voice) sel.value = voice.voiceURI;
+    const frList = list.filter((v) => /^fr/i.test(v.lang));
+    voice = state.settings.voiceURI === '' ? null
+      : list.find((v) => v.voiceURI === state.settings.voiceURI) || frList[0] || null;
+    sel.value = voice ? voice.voiceURI : '';
   }
 
   // ---------- Thư viện ----------
@@ -1259,7 +1308,7 @@
 
   $('voice').onchange = () => {
     state.settings.voiceURI = $('voice').value;
-    voice = synth.getVoices().find((v) => v.voiceURI === state.settings.voiceURI) || voice;
+    voice = state.settings.voiceURI ? synth.getVoices().find((v) => v.voiceURI === state.settings.voiceURI) || voice : null;
     save();
   };
 
@@ -1325,7 +1374,12 @@
   if (synth) {
     populateVoices();
     synth.addEventListener?.('voiceschanged', populateVoices);
-    if (!('onvoiceschanged' in synth)) setTimeout(populateVoices, 500);
+    // iPhone/Android nạp danh sách giọng chậm và đôi khi không báo: hỏi lại vài lần.
+    let tries = 0;
+    const retry = setInterval(() => {
+      if (synth.getVoices().length && $('voice').options.length > 1 || ++tries > 20) clearInterval(retry);
+      populateVoices();
+    }, 500);
   } else {
     populateVoices();
   }
