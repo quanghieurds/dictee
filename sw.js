@@ -1,7 +1,7 @@
 // Service worker: cho app mở được khi không có mạng sau lần mở đầu.
 // File của app: lấy bản mới từ mạng khi có, mất mạng thì dùng bản đã lưu.
 // Font Google: lưu lại một lần rồi dùng mãi. Bộ nhận dạng giọng nói tự lưu riêng nên bỏ qua.
-const VERSION = 'dictee-v1';
+const VERSION = 'dictee-v2';
 const APP_FILES = [
   './', 'index.html', 'styles.css', 'i18n.js', 'core.js', 'lessons-builtin.js', 'audio.js', 'app.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
@@ -25,13 +25,20 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
 
   if (url.origin === self.location.origin) {
+    // Dùng bản đã lưu khi mất mạng HOẶC khi máy chủ báo lỗi (vd trang GitHub bị xóa → 404),
+    // để app đã cài vẫn chạy tiếp.
+    const fromCache = () => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('index.html'));
     e.respondWith(
       fetch(req)
         .then((res) => {
-          if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
-          return res;
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put(req, copy));
+            return res;
+          }
+          return fromCache().then((r) => r || res);
         })
-        .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))),
+        .catch(fromCache),
     );
     return;
   }
