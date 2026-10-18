@@ -15,8 +15,15 @@
   }
   function save() {
     try {
+      // Mốc thời gian của bài có file âm thanh nằm trong IndexedDB (audio.t = 1) để localStorage
+      // (giới hạn ~5 MB) chỉ giữ văn bản và tiến độ.
+      const lessons = state.lessons.map((l) => {
+        if (!(l.audio && l.audio.t === 1)) return l;
+        const { words, silences, ...rest } = l;
+        return rest;
+      });
       localStorage.setItem(KEY, JSON.stringify({
-        lessons: state.lessons, progress: state.progress, settings: state.settings,
+        lessons, progress: state.progress, settings: state.settings,
         activeId: state.activeId, mode: state.mode,
         hiddenBuiltin: state.hiddenBuiltin, openGroups: state.openGroups,
         builtinVersion: state.builtinVersion, packs: state.packs,
@@ -311,7 +318,7 @@
         const doneCount = p ? p.done.length : 0;
         const name = document.createElement('span');
         name.className = 'i-name';
-        name.innerHTML = (l.words && !l.pack ? ic('music') : '') + esc(l.level ? l.title.replace(`${l.level} · `, '') : l.title);
+        name.innerHTML = (l.audio && !l.pack ? ic('music') : '') + esc(l.level ? l.title.replace(`${l.level} · `, '') : l.title);
         const meta = document.createElement('span');
         meta.className = 'meta' + (doneCount >= total && total ? ' done' : '');
         meta.textContent = doneCount >= total && total ? t('item.done') : doneCount ? `${doneCount}/${total}` : t('item.sentences', { n: total });
@@ -709,10 +716,28 @@
 
   // ---------- File âm thanh của bài ----------
   // Nạp file của bài (nếu có) rồi tính đoạn thời gian cho từng câu.
+  // Mốc thời gian từng từ: trong bộ nhớ nếu có, không thì đọc từ IndexedDB.
+  async function getTiming(l) {
+    if (l.words) return { words: l.words, silences: l.silences || [] };
+    const tm = await AudioStore.get(l.id + '#t').catch(() => null);
+    if (tm && Array.isArray(tm.words)) { l.words = tm.words; l.silences = tm.silences || []; return tm; }
+    return null;
+  }
+  // Ghi mốc thời gian vào IndexedDB rồi mới đánh dấu để save() bỏ chúng khỏi localStorage.
+  async function putTiming(l, words, silences) {
+    l.words = words;
+    l.silences = silences || [];
+    try {
+      await AudioStore.put(l.id + '#t', { words, silences: l.silences });
+      l.audio.t = 1;
+    } catch { /* để nguyên trong localStorage */ }
+  }
+  const delAudio = (id) => { AudioStore.del(id).catch(() => {}); AudioStore.del(id + '#t').catch(() => {}); };
+
   async function loadAudio(l) {
-    const key = l.words && l.audio ? l.id + ':' + l.audio.added : null;
+    const key = l.audio ? l.id + ':' + l.audio.added : null;
     if (key && key === run.audioKey) {
-      if (!run.audioLoading && audioEl.src) run.segments = alignSentences(run.sentences, l.words, l.audio.duration, l.silences);
+      if (!run.audioLoading && audioEl.src && l.words) run.segments = alignSentences(run.sentences, l.words, l.audio.duration, l.silences);
       return;
     }
     run.audioKey = key;
@@ -726,24 +751,26 @@
     if (!key) { run.audioLoading = false; return; }
     run.audioLoading = true;
     let blob = null;
-    try { blob = await AudioStore.get(l.id); } catch { /* không mở được kho */ }
+    let timing = null;
+    try { [blob, timing] = await Promise.all([AudioStore.get(l.id), getTiming(l)]); } catch { /* không mở được kho */ }
     if (run.audioKey !== key) return;
     run.audioLoading = false;
-    if (blob) {
+    const ok = !!(blob && timing);
+    if (ok) {
       audioEl.src = URL.createObjectURL(blob);
-      run.segments = alignSentences(run.sentences, l.words, l.audio.duration, l.silences);
+      run.segments = alignSentences(run.sentences, timing.words, l.audio.duration, timing.silences);
     }
-    renderAudioInfo(l, !blob);
+    renderAudioInfo(l, !ok);
     renderPlayer();
   }
 
   function renderAudioInfo(l, missing) {
     const badge = $('audio-badge');
-    badge.hidden = !l.words;
+    badge.hidden = !l.audio;
     badge.classList.toggle('missing', !!missing);
     $('audio-badge-text').textContent = t(missing ? 'badge.missing' : 'badge.audio');
     run.audioMissing = !!missing;
-    $('ctrl-voice').hidden = !!l.words && !missing;
+    $('ctrl-voice').hidden = !!l.audio && !missing;
   }
 
   function renderAll() {
@@ -788,7 +815,7 @@
     $('editor-title').textContent = t(l ? 'ed.edit' : 'ed.add');
     edAudio = null;
     setAsrBusy(false);
-    if (l && l.words) setAudioStatus(t('asr.using', { f: describeAudio(l.audio.name, l.audio.duration) }));
+    if (l && l.audio) setAudioStatus(t('asr.using', { f: describeAudio(l.audio.name, l.audio.duration) }));
     else setAudioStatus(window.matchMedia('(pointer: coarse)').matches ? t('asr.mobileWarn') : '');
     renderAudioButtons();
     $('ed-title').value = l ? l.title : '';
@@ -829,13 +856,12 @@
       delete l.words;
       delete l.audio;
       delete l.silences;
-      AudioStore.del(l.id).catch(() => {});
+      delAudio(l.id);
     } else if (pending) {
       try {
         await AudioStore.put(l.id, pending.file);
-        l.words = pending.words;
-        l.silences = pending.silences;
         l.audio = { name: pending.name, duration: pending.duration, added: Date.now() };
+        await putTiming(l, pending.words, pending.silences);
         delete state.progress[l.id];
       } catch {
         alert(t('asr.saveFail'));
@@ -889,7 +915,7 @@
   }
   function renderAudioButtons() {
     const l = editingId ? state.lessons.find((x) => x.id === editingId) : null;
-    const has = edAudio ? !edAudio.remove : !!(l && l.words);
+    const has = edAudio ? !edAudio.remove : !!(l && l.audio);
     $('ed-audio-remove').hidden = !has;
   }
 
@@ -965,10 +991,13 @@
   async function lessonForExport(l) {
     const { words, audio, silences, ...rest } = l;
     const out = { ...rest };
-    if (words && audio) {
+    if (audio) {
       try {
-        const blob = await AudioStore.get(l.id);
-        if (blob) Object.assign(out, { words, silences, audio, audioData: await blobToDataURL(blob) });
+        const [blob, tm] = await Promise.all([AudioStore.get(l.id), getTiming(l)]);
+        if (blob && tm) {
+          const { t, ...meta } = audio;
+          Object.assign(out, { words: tm.words, silences: tm.silences, audio: meta, audioData: await blobToDataURL(blob) });
+        }
       } catch { /* không đọc được file âm thanh: chỉ lưu văn bản */ }
     }
     return out;
@@ -986,9 +1015,9 @@
     try {
       const blob = await (await fetch(l.audioData)).blob();
       await AudioStore.put(target.id, blob);
-      target.words = l.words;
-      target.silences = l.silences || [];
-      target.audio = { ...l.audio, added: Date.now() };
+      const { t, ...meta } = l.audio;
+      target.audio = { ...meta, added: Date.now() };
+      await putTiming(target, l.words, l.silences);
       return true;
     } catch {
       return false;
@@ -1006,7 +1035,7 @@
         await importAudio(entry, l);
         state.lessons.push(entry);
         added++;
-      } else if (!have.words && have.text === l.text && await importAudio(have, l)) {
+      } else if (!have.audio && have.text === l.text && await importAudio(have, l)) {
         // Bài đã có nhưng thiếu file âm thanh: bổ sung từ bản sao lưu.
         run.audioKey = null;
       }
@@ -1096,7 +1125,7 @@
     const items = packLessons(pack.id);
     if (!confirm(t('pack.confirmDelete', { name: pack.name, n: items.length }))) return;
     if (items.some((l) => l.id === state.activeId)) { stopPlayback(); resetFull(); state.activeId = null; }
-    for (const l of items) { delete state.progress[l.id]; AudioStore.del(l.id).catch(() => {}); }
+    for (const l of items) { delete state.progress[l.id]; delAudio(l.id); }
     state.lessons = state.lessons.filter((l) => l.pack !== pack.id);
     state.packs = state.packs.filter((p) => p.id !== pack.id);
     state.openGroups = state.openGroups.filter((k) => k !== 'pack:' + pack.id);
@@ -1228,6 +1257,7 @@
           audio: { name: f.name, duration: r.duration, added: Date.now() },
         };
         await AudioStore.put(l.id, f);
+        await putTiming(l, r.words, r.silences);
         state.lessons.push(l);
         ok++;
         save();
@@ -1269,7 +1299,7 @@
     resetFull();
     state.lessons = state.lessons.filter((x) => x.id !== l.id);
     delete state.progress[l.id];
-    AudioStore.del(l.id).catch(() => {});
+    delAudio(l.id);
     if (BUILTIN.some((b) => b.id === l.id)) state.hiddenBuiltin.push(l.id);
     state.activeId = null;
     save();
@@ -1348,7 +1378,7 @@
     const l = lesson();
     if (!l) return;
     $('input').placeholder = t(state.mode === 'full' ? 'ph.full' : 'ph.sentence');
-    if (l.words) renderAudioInfo(l, run.audioMissing);
+    if (l.audio) renderAudioInfo(l, run.audioMissing);
     renderPlayer();
     renderHint();
     renderDone();
@@ -1388,6 +1418,13 @@
   save(); // lưu ngay kết quả gộp/cập nhật bài mẫu
   renderAll();
   renderLibToggle();
+
+  // Bài cũ còn mốc thời gian trong localStorage: chuyển sang IndexedDB cho nhẹ localStorage.
+  (async () => {
+    const old = state.lessons.filter((l) => l.audio && l.audio.t !== 1 && Array.isArray(l.words));
+    for (const l of old) await putTiming(l, l.words, l.silences);
+    if (old.length) save();
+  })();
 
   // Bản trên mạng (https): cài được như app và mở được khi mất mạng.
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

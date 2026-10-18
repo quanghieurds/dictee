@@ -384,22 +384,31 @@
   const SEP = String.raw`[\s.,:;\-–—]*`;
   const NUM = String.raw`(?:n°\s*|num[ée]ro\s*)?\d+(?:\s*[.,\-–]\s*\d+)*`;
   const HEAD_PREFIX = new RegExp('^(?:' + [
-    String.raw`activit[ée]s?\s*` + NUM,
+    String.raw`activit[ée]s?\s*(?:` + NUM + String.raw`|(?:un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|neuve|dix|onze|douze)\b)`,
+    String.raw`[ée]preuve\s+(?:type|blanche)`,
     String.raw`exercices?\s*` + NUM,
     String.raw`(?:document|piste|partie|[ée]preuve|enregistrement|sujet|track)\s*` + NUM,
     String.raw`compr[ée]hension\s+(?:de\s+l['’]\s*)?(?:orale?|écrite?|ecrite?)`,
     String.raw`d[ée]l(?:f|ph)(?:[\s\-]*(?:blanc?|a1|a2|b1|b2|junior|prim))*(?:\s*` + NUM + ')?',
+    // Whisper hay nghe "DELF" thành "D'Elf"
+    String.raw`d['’]\s*el(?:f|ph)(?:[\s\-]*(?:blanc?|a1|a2|b1|b2))*(?:\s*` + NUM + ')?',
+    String.raw`(?:dialogue|situation|conversation|message|annonce|texte|question)\s*(?:n°\s*|num[ée]ro\s*)?\d+(?:\s*[.,\-–]\s*\d+)*`,
   ].join('|') + ')' + SEP, 'i');
   const HEAD_WHOLE = new RegExp('^(?:' + [
     String.raw`comprendre\s+(?:une?|des|les?|la|l['’])\s*\S+(?:\s+\S+)?`,
     NUM,
     String.raw`exercices?`,
+    String.raw`dialogues?`,
     String.raw`(?:un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|premier|première|deuxième|troisième)`,
-  ].join('|') + ')' + SEP + '$', 'i');
+  ].join('|') + ')' + String.raw`[\s.,:;!?\-–—]*$`, 'i');
+
+  // Ghi chú âm thanh do máy nhận dạng tự chèn: *Bip*, [Musique], (rires), ♪
+  const SOUND_NOTE = /\*[^*\n]{1,30}\*|\[[^\]\n]{1,30}\]|\((?:musique|rires?|applaudissements|bip)[^)\n]{0,20}\)|♪+/gi;
 
   // Bỏ tiêu đề ở đầu câu; trả về phần còn lại ('' nếu cả câu là tiêu đề).
   function stripHeading(sentence) {
-    let s = String(sentence).trim();
+    let s = String(sentence).replace(SOUND_NOTE, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (!s.replace(/[\s.,:;!?…\-–—]/g, '')) return '';
     for (let k = 0; k < 6; k++) {
       if (HEAD_WHOLE.test(s)) return '';
       const m = s.match(HEAD_PREFIX);
@@ -411,11 +420,16 @@
   }
 
   // Lọc danh sách câu nhận dạng được: bỏ các dòng tiêu đề, trả về {sentences, removed}.
+  // Câu đầu bài kiểu tên dạng bài trong sách luyện thi: "Comprendre un message sur son répondeur
+  // téléphonique.", "Comprendre une interaction entre locuteurs natifs." (đôi khi có tiếng đệm phía trước).
+  const SECTION_TITLE = /^(?:\S+[?!.]\s+)?comprendre\s+(?:une?|des|les?|la|l['’])\s*\S+(?:\s+\S+){0,8}[.?!…]?$/i;
+
   function stripHeadings(sentences) {
     const out = [];
     let removed = 0;
     for (const s of sentences) {
-      const r = stripHeading(s);
+      let r = stripHeading(s);
+      if (r && !out.length && SECTION_TITLE.test(r)) r = '';
       if (r !== s.trim()) removed++;
       if (r) out.push(r);
     }

@@ -44,7 +44,9 @@
     let asr = null, loaded = null;
     const HALLU = /amara.org|sous-titr|merci d'avoir regard|abonnez-vous/i;
     self.onmessage = async (e) => {
-      const { audio, model, chunks } = e.data;
+      const { audio, model, chunks, silences } = e.data;
+      // Số giây có tiếng trong [a, b] (trừ các khoảng lặng).
+      const speechIn = (a, b) => b - a - silences.reduce((n, s) => n + Math.max(0, Math.min(b, s[1]) - Math.max(a, s[0])), 0);
       try {
         const { pipeline, env } = await import('${LIB}');
         env.allowLocalModels = false;
@@ -66,17 +68,25 @@
         const segments = [];
         for (let i = 0; i < chunks.length; i++) {
           self.postMessage({ type: 'transcribing', done: i, total: chunks.length });
-          const [a, b] = chunks[i];
-          const slice = audio.subarray(Math.floor(a * 16000), Math.ceil(b * 16000));
-          const out = await asr(slice, { language: 'french', task: 'transcribe', return_timestamps: true });
-          const parts = (out.chunks && out.chunks.length) ? out.chunks : [{ text: out.text, timestamp: [0, b - a] }];
-          for (const p of parts) {
-            // Bỏ câu trống và câu "ma" Whisper hay tự bịa khi gặp tiếng ồn.
-            if (!p.text || !p.text.trim() || HALLU.test(p.text)) continue;
-            const ts = p.timestamp || [0, b - a];
-            const s = a + Math.min(ts[0] ?? 0, b - a);
-            const t = a + Math.min(ts[1] ?? (b - a), b - a);
-            segments.push({ text: p.text, start: s, end: Math.max(s, t) });
+          let [a, b] = chunks[i];
+          // Whisper hay dừng sau câu đầu (vd tiêu đề "Activité 6-1") dù phía sau còn lời:
+          // khi đó nghe tiếp phần còn lại, tối đa vài lần.
+          for (let pass = 0; pass < 4 && b - a > 0.5; pass++) {
+            const slice = audio.subarray(Math.floor(a * 16000), Math.ceil(b * 16000));
+            const out = await asr(slice, { language: 'french', task: 'transcribe', return_timestamps: true });
+            const parts = (out.chunks && out.chunks.length) ? out.chunks : [{ text: out.text, timestamp: [0, b - a] }];
+            let lastEnd = a;
+            for (const p of parts) {
+              // Bỏ câu trống và câu "ma" Whisper hay tự bịa khi gặp tiếng ồn.
+              if (!p.text || !p.text.trim() || HALLU.test(p.text)) continue;
+              const ts = p.timestamp || [0, b - a];
+              const s = a + Math.min(ts[0] ?? 0, b - a);
+              const t = a + Math.min(ts[1] ?? (b - a), b - a);
+              segments.push({ text: p.text, start: s, end: Math.max(s, t) });
+              lastEnd = Math.max(lastEnd, t);
+            }
+            if (lastEnd <= a + 0.2 || speechIn(lastEnd, b) < 1.5) break;
+            a = lastEnd + 0.05;
           }
         }
         self.postMessage({ type: 'done', segments });
@@ -161,7 +171,7 @@
       };
       w.onerror = (e) => fail(e.message || t('err.unknown'));
       arm();
-      w.postMessage({ audio, model: MODELS[modelKey].id, chunks }, [audio.buffer]);
+      w.postMessage({ audio, model: MODELS[modelKey].id, chunks, silences }, [audio.buffer]);
     });
   }
 

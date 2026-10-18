@@ -178,3 +178,20 @@ test('stripHeadings: bỏ dòng tiêu đề của file đề thi, giữ câu th�
     'Exercice physique tous les matins.', 'Deux enfants jouent.', 'Message aux voyageurs.']);
   assert.equal(r.removed, 11);
 });
+
+test('stripHeadings: câu đầu "Comprendre ..." là tên dạng bài, câu sau giữ nguyên', () => {
+  const r = core.stripHeadings(['Comprendre un message sur son répondeur téléphonique.', 'Coucou, c\'est Isabelle.', 'Comprendre une langue demande du temps.']);
+  assert.deepEqual(r.sentences, ['Coucou, c\'est Isabelle.', 'Comprendre une langue demande du temps.']);
+  assert.deepEqual(core.stripHeadings(['Hein? comprendre un message sur son répondeur téléphonique.', 'Dona mi.']).sentences, ['Dona mi.']);
+  assert.deepEqual(core.stripHeadings(['Activité 3.', 'Comprendre une interaction entre locuteurs natifs.', 'Tu as vu les photos ?']).sentences, ['Tu as vu les photos ?']);
+});
+
+test('stripHeadings: nhãn "Dialogue 1", "Situation numéro 2", "D\'Elf Blanc 3"', () => {
+  const r = core.stripHeadings(['Situation numéro 1.', 'Tu as vu le film ?', 'Dialogue!', 'Dialogue 2.', "D'Elf Blanc 3.", 'Vous êtes en vacances.', 'Message 2. Bonjour à tous.', 'Le message est clair.']);
+  assert.deepEqual(r.sentences, ['Tu as vu le film ?', 'Vous êtes en vacances.', 'Bonjour à tous.', 'Le message est clair.']);
+});
+
+test('stripHeadings: bỏ ghi chú âm thanh *Bip* [Musique], "Activité neuve", "Épreuve type"', () => {
+  const r = core.stripHeadings(['*Bip*.', 'Bonjour, c\'est Rose.', '[Musique].', 'Activité neuve!', 'Épreuve type.', 'Salut [rires] tout le monde.']);
+  assert.deepEqual(r.sentences, ['Bonjour, c\'est Rose.', 'Salut tout le monde.']);
+});
